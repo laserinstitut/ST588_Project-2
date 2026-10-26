@@ -4,6 +4,8 @@ format: html
 editor: visual
 ---
 
+### Reading in and trasformation
+
 ```{r}
 library(tidyverse)
 library(scales)
@@ -14,7 +16,30 @@ glimpse(housing_raw)
 summary(housing_raw)
 ```
 
-The Melbourne housing dataset contains 34,857 records and 21 variables describing property characteristics, locations, sale methods, and prices. Among records with observed prices, the median price is A\$870,000 and the mean is approximately A\$1.05 million. The higher mean and maximum price of A\$11.2 million suggest a right-skewed distribution. Prices are missing for 7,610 records (21.8%), so price analyses will use only records with observed prices. Building area and year built also have substantial missingness, and some values warrant further investigation, including construction years ranging from 1196 to 2106 and unusually large land and building areas. The analysis will explore how prices vary across property types and regions and how they relate to distance from the city centre, building area, and room count.
+```{r}
+missing_summary <- housing_raw |>
+  summarise(across(everything(), ~ sum(is.na(.x)))) |>
+  pivot_longer(
+    everything(),
+    names_to = "variable",
+    values_to = "missing_n"
+  ) |>
+  mutate(
+    missing_pct = 100 * missing_n / nrow(housing_raw)
+  ) |>
+  arrange(desc(missing_n))
+
+missing_summary |>
+  filter(missing_n > 0) |>
+  knitr::kable(
+    col.names = c("Variable", "Missing records", "Missing (%)"),
+    digits = c(0, 0, 1),
+    format.args = list(big.mark = ","),
+    caption = "Missing values by variable; variables with no missing values are omitted."
+  )
+```
+
+The Melbourne housing dataset contains 34,857 records and 21 variables describing property characteristics, locations, sale methods, and prices. Among records with observed prices, the median price is A\$870,000 and the mean is approximately A\$1.05 million. The higher mean and maximum price of A\$11.2 million suggest a right-skewed distribution. Prices are missing for 7,610 records (21.8%), so price analyses will use only records with observed prices. Building area and year built also have substantial missingness, and some values warrant further investigation, including construction years ranging from 1196 to 2106 and unusually large land and building areas. The analysis will explore how prices vary across property types and regions and how they relate to distance from the city center, building area, and room count.
 
 Questions to explore:
 
@@ -26,216 +51,161 @@ Questions to explore:
 
 4\. How are building area and room count associated with price?
 
-# 
+```{r}
+#Prepare variables for analysis
+housing <- housing_raw |>
+  mutate(
+    property_type = factor(
+      Type,
+      levels = c("h", "t", "u"),
+      labels = c("House", "Townhouse", "Unit/apartment")
+    ),
+    region = factor(
+      na_if(na_if(str_trim(Regionname), ""), "#N/A")
+    ),
+    Price = if_else(Price > 0, Price, NA_real_),
+    BuildingArea = if_else(BuildingArea > 0, BuildingArea, NA_real_)
+  )
 
-# ------------------------------------------------------------------
+priced <- housing |>
+  filter(!is.na(Price))
+```
 
-# Confirm the variables needed below are available.
+### Contingency tables
 
-required_columns \<- c( "Type", "Regionname", "Price", "Rooms", "Distance", "Bathroom", "BuildingArea" )
+The following **one-way contingency tables** summarize the number and percentage of records by property type and region. These describe the composition of the dataset, including records without observed prices.
 
-stopifnot(all(required_columns %in% names(housing_raw)))
+```{r}
+#One-way contingency tables
+type_counts <- housing |>
+  count(property_type, name = "n", .drop = FALSE) |>
+  mutate(percent = 100 * n / sum(n))
 
-# Missing-data summary
+type_counts |>
+  knitr::kable(
+    col.names = c("Property type", "Records", "Percent"),
+    digits = 1,
+    caption = "Distribution of records by property type."
+  )
 
-missing_summary \<- housing_raw \|\> summarise(across(everything(), \~ sum(is.na(.x)))) \|\> pivot_longer( everything(), names_to = "variable", values_to = "missing_n" ) \|\> mutate(missing_pct = 100 \* missing_n / nrow(housing_raw)) \|\> arrange(desc(missing_pct))
+region_counts <- housing |>
+  count(region, name = "n", sort = TRUE) |>
+  mutate(percent = 100 * n / sum(n))
 
-print(missing_summary, n = Inf)
+region_counts |>
+  knitr::kable(
+    col.names = c("Region", "Records", "Percent"),
+    digits = 1,
+    caption = "Distribution of records by region."
+  )
+```
 
-# ------------------------------------------------------------------
+Houses account for most records (68.8%), followed by units/apartments (20.9%) and townhouses (10.3%). Southern Metropolitan has the largest share of records (34.0%), followed by Northern Metropolitan (27.4%) and Western Metropolitan (19.5%). The three Victoria regions have relatively few records, so comparisons involving these regions should consider their smaller sample sizes.
 
-# 2. Prepare variables
+**The two-way contingency table** shows how property types are distributed across regions. Row percentages allow comparisons between regions with different numbers of records.
 
-# ------------------------------------------------------------------
+```{r}
+type_region_complete <- housing |>
+  filter(!is.na(region), !is.na(property_type))
 
-housing \<- housing_raw \|\> mutate( property_type = factor( Type, levels = c("h", "t", "u"), labels = c("House", "Townhouse", "Unit/apartment") ), region = na_if(str_trim(Regionname), ""), region = factor(region), \# Treat nonpositive values as unavailable for these measures. Price = if_else(Price \> 0, Price, NA_real\_), BuildingArea = if_else(BuildingArea \> 0, BuildingArea, NA_real\_) )
+type_region_table <- with(
+  type_region_complete,
+  table(region, property_type)
+)
 
-# Retain records without prices for counts of recorded properties.
+knitr::kable(
+  addmargins(type_region_table),
+  caption = "Property type by region: counts, excluding missing categories.",
+  format.args = list(big.mark = ",")
+)
 
-# Use records with observed prices for price analyses.
+type_region_pct <- prop.table(
+  type_region_table,
+  margin = 1
+) * 100
 
-priced \<- housing \|\> filter(!is.na(Price))
+knitr::kable(
+  type_region_pct,
+  digits = 1,
+  caption = "Property type by region: row percentages."
+)
+```
 
-sample_sizes \<- tibble( measure = c( "All records", "Records with observed positive prices", "Records without usable prices" ), n = c( nrow(housing), nrow(priced), sum(is.na(housing\$Price)) ) )
+Houses were the most common property type in every region. Their share ranged from 58.9% of records in Southern Metropolitan to more than 94% in each of the three Victoria regions. Southern Metropolitan had the highest proportion of units and apartments (29.9%), followed by Northern Metropolitan (21.3%). Comparisons involving the Victoria regions should be interpreted cautiously because those regions have fewer records.
 
-print(sample_sizes)
+### Numerical summaries
 
-# ------------------------------------------------------------------
+The following table summarizes price, number of rooms, distance from the city center, and building area by property type. The number of observed values is reported for each variable because missingness differs across variables.
 
-# 3. One-way contingency tables
+```{r}
+quantitative_by_type <- housing |>
+  filter(!is.na(property_type)) |>
+  select(property_type, Price, Rooms, Distance, BuildingArea) |>
+  pivot_longer(
+    cols = -property_type,
+    names_to = "variable",
+    values_to = "value"
+  ) |>
+  group_by(property_type, variable) |>
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    .groups = "drop"
+  )
 
-# ------------------------------------------------------------------
+quantitative_by_type |>
+  knitr::kable(
+    digits = 1,
+    format.args = list(big.mark = ","),
+    col.names = c(
+      "Property type", "Variable", "Observed n",
+      "Mean", "Median", "SD"
+    ),
+    caption = "Numerical summaries by property type."
+  )
+```
 
-type_counts \<- housing \|\> count(property_type, name = "n", .drop = FALSE) \|\> mutate(percent = 100 \* n / sum(n))
+Houses had the highest median price at **A\$1,015,000**, followed by townhouses at **A\$850,000** and units/apartments at **A\$580,000**. For each property type, the mean was higher than the median, which suggests that some expensive properties may be raising the average.
 
-region_counts \<- housing \|\> count(region, name = "n", sort = TRUE) \|\> mutate(percent = 100 \* n / sum(n))
+Houses also had the largest median building area at 151 m², compared with 133 m² for townhouses and 75 m² for units/apartments. Houses were generally farther from the city centre, with a median distance of 11.2 km, while units/apartments had a median distance of 7.2 km. Both houses and townhouses had a median of three rooms, compared with two rooms for units/apartments.
 
-print(type_counts) print(region_counts)
+Building area was missing for many properties, so these results are based on fewer observations. The standard deviation for house building area was especially large (454.1 m²), suggesting that there may be some unusually large values worth looking at more closely.
 
-# ------------------------------------------------------------------
+### Plots
 
-# 4. Two-way contingency tables
-
-# ------------------------------------------------------------------
-
-# Property type by region
-
-type_region_table \<- with( housing, table(region, property_type, useNA = "ifany") )
-
-print(addmargins(type_region_table))
-
-# Within-region percentages, using records with known categories
-
-type_region_complete \<- housing \|\> filter(!is.na(region), !is.na(property_type))
-
-type_region_pct \<- with( type_region_complete, prop.table(table(region, property_type), margin = 1) \* 100 )
-
-print(round(type_region_pct, 1))
-
-# ------------------------------------------------------------------
-
-# 5. Numerical summaries
-
-# ------------------------------------------------------------------
-
-# Overall price summary
-
-overall_price_summary \<- priced \|\> summarise( n = n(), mean_price = mean(Price), median_price = median(Price), sd_price = sd(Price), q1_price = quantile(Price, 0.25), q3_price = quantile(Price, 0.75), min_price = min(Price), max_price = max(Price) )
-
-print(overall_price_summary)
-
-# Price summaries by property type
-
-price_by_type \<- priced \|\> filter(!is.na(property_type)) \|\> group_by(property_type) \|\> summarise( n = n(), mean_price = mean(Price), median_price = median(Price), sd_price = sd(Price), IQR_price = IQR(Price), .groups = "drop" )
-
-print(price_by_type)
-
-# Price summaries by region AND property type
-
-price_by_region_type \<- priced \|\> filter(!is.na(region), !is.na(property_type)) \|\> group_by(region, property_type) \|\> summarise( n = n(), mean_price = mean(Price), median_price = median(Price), sd_price = sd(Price), .groups = "drop" )
-
-print(price_by_region_type, n = Inf)
-
-# Multiple quantitative variables at levels of property type
-
-quantitative_by_type \<- housing \|\> filter(!is.na(property_type)) \|\> select( property_type, Price, Rooms, Distance, Bathroom, BuildingArea ) \|\> pivot_longer( -property_type, names_to = "variable", values_to = "value" ) \|\> group_by(property_type, variable) \|\> summarise( n_observed = sum(!is.na(value)), mean = if (all(is.na(value))) NA_real\_ else mean(value, na.rm = TRUE), median = if (all(is.na(value))) NA_real\_ else median(value, na.rm = TRUE), sd = sd(value, na.rm = TRUE), .groups = "drop" )
-
-print(quantitative_by_type, n = Inf)
-
-# ------------------------------------------------------------------
-
-# 6. Plot settings
-
-# ------------------------------------------------------------------
+```{r}
+library(scales)
 
 theme_set(theme_minimal(base_size = 12))
 
-type_colors \<- c( "House" = "#0072B2", "Townhouse" = "#D55E00", "Unit/apartment" = "#009E73" )
+type_colors <- c(
+  "House" = "#0072B2",
+  "Townhouse" = "#D55E00",
+  "Unit/apartment" = "#009E73"
+)
 
-price_labels \<- label_dollar( prefix = "A\$", scale = 1e-6, suffix = "M" )
+price_labels <- label_dollar(
+  prefix = "A$",
+  scale = 1e-6,
+  suffix = "M"
+)
+```
 
-# ------------------------------------------------------------------
+#### 1. Bar chart: property type
 
-# Plot 1: Bar chart
+```{r}
+housing |>
+  filter(!is.na(property_type)) |>
+  ggplot(aes(x = property_type)) +
+  geom_bar(fill = "#0072B2", width = 0.65) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(
+    title = "Property Records by Type",
+    x = "Property type",
+    y = "Number of records"
+  )
+```
 
-# Univariate: property type
-
-# ------------------------------------------------------------------
-
-p1 \<- housing \|\> filter(!is.na(property_type)) \|\> ggplot(aes(x = property_type)) + geom_bar(fill = "#0072B2", width = 0.65) + labs( title = "Houses, Townhouses, and Units in the Dataset", x = "Property type", y = "Number of records" )
-
-print(p1)
-
-# ------------------------------------------------------------------
-
-# Plot 2: Side-by-side bar chart
-
-# Multivariate: region and property type
-
-# ------------------------------------------------------------------
-
-p2 \<- type_region_complete \|\> ggplot(aes(x = region, fill = property_type)) + geom_bar(position = "dodge") + coord_flip() + scale_fill_manual(values = type_colors) + labs( title = "Property Types Across Melbourne Regions", x = "Region", y = "Number of records", fill = "Property type" )
-
-print(p2)
-
-# ------------------------------------------------------------------
-
-# Plot 3: Histogram
-
-# Univariate: price
-
-# A log scale helps show a right-skewed price distribution.
-
-# ------------------------------------------------------------------
-
-p3 \<- ggplot(priced, aes(x = Price)) + geom_histogram( bins = 40, fill = "#0072B2", color = "white" ) + scale_x_log10(labels = price_labels) + labs( title = "Distribution of Observed Melbourne Property Prices", subtitle = "Price axis uses a logarithmic scale", x = "Price (AUD; log scale)", y = "Number of records" )
-
-print(p3)
-
-# ------------------------------------------------------------------
-
-# Plot 4: Box plot
-
-# Multivariate: property type and price
-
-# ------------------------------------------------------------------
-
-p4 \<- priced \|\> filter(!is.na(property_type)) \|\> ggplot(aes( x = property_type, y = Price, fill = property_type )) + geom_boxplot(outlier.alpha = 0.15) + scale_fill_manual(values = type_colors) + scale_y_log10(labels = price_labels) + labs( title = "Property Prices by Property Type", subtitle = "Price axis uses a logarithmic scale", x = "Property type", y = "Price (AUD; log scale)" ) + theme(legend.position = "none")
-
-print(p4)
-
-# ------------------------------------------------------------------
-
-# Plot 5: Scatter plot
-
-# Multivariate: distance, price, and property type
-
-# ------------------------------------------------------------------
-
-p5 \<- priced \|\> filter(!is.na(Distance), !is.na(property_type)) \|\> ggplot(aes( x = Distance, y = Price, color = property_type )) + geom_point(alpha = 0.2, size = 1) + scale_color_manual(values = type_colors) + scale_y_log10(labels = price_labels) + labs( title = "Property Prices and Distance from Central Melbourne", subtitle = "Each point represents one record with an observed price", x = "Distance from city centre (km)", y = "Price (AUD; log scale)", color = "Property type" )
-
-print(p5)
-
-# ------------------------------------------------------------------
-
-# Plot 6: Faceted scatter plot
-
-# Multivariate: building area, price, type, and room count
-
-# ------------------------------------------------------------------
-
-p6 \<- priced \|\> filter( !is.na(BuildingArea), !is.na(property_type), !is.na(Rooms) ) \|\> ggplot(aes( x = BuildingArea, y = Price, color = Rooms )) + geom_point(alpha = 0.35, size = 1) + facet_wrap(\~ property_type) + scale_color_viridis_c(option = "C") + scale_x_log10(labels = label_comma()) + scale_y_log10(labels = price_labels) + labs( title = "Building Area and Price Across Property Types", subtitle = "Both axes use logarithmic scales; color shows room count", x = "Building area (square metres; log scale)", y = "Price (AUD; log scale)", color = "Rooms" )
-
-print(p6)
-
-# ------------------------------------------------------------------
-
-# Plot 7: Heatmap — additional plot type
-
-# Multivariate: region, property type, and median price
-
-# ------------------------------------------------------------------
-
-heatmap_data \<- price_by_region_type \|\> mutate( price_label = paste0( dollar(median_price, scale = 1e-6, suffix = "M"), "\nn = ", comma(n) ) )
-
-p7 \<- ggplot( heatmap_data, aes( x = property_type, y = region, fill = median_price ) ) + geom_tile(color = "white", linewidth = 0.5) + geom_text(aes(label = price_label), size = 3) + scale_fill_gradient( low = "#F7FBFF", high = "#6BAED6", labels = price_labels ) + labs( title = "Median Property Price by Region and Property Type", subtitle = "Each tile shows the median price and number of observed prices", x = "Property type", y = "Region", fill = "Median price\n(AUD)" ) + theme(panel.grid = element_blank())
-
-print(p7)
-
-# ------------------------------------------------------------------
-
-# 7. Save summaries and figures
-
-# ------------------------------------------------------------------
-
-dir.create("output", showWarnings = FALSE) dir.create("output/figures", showWarnings = FALSE)
-
-write_csv(missing_summary, "output/missing_summary.csv") write_csv(sample_sizes, "output/sample_sizes.csv") write_csv(type_counts, "output/property_type_counts.csv") write_csv(region_counts, "output/region_counts.csv") write_csv(overall_price_summary, "output/overall_price_summary.csv") write_csv(price_by_type, "output/price_by_type.csv") write_csv(price_by_region_type, "output/price_by_region_type.csv") write_csv(quantitative_by_type, "output/quantitative_by_type.csv")
-
-write.csv( as.data.frame.matrix(type_region_table), "output/type_by_region_counts.csv" )
-
-write.csv( round(type_region_pct, 1), "output/type_by_region_percentages.csv" )
-
-plots \<- list( property_type_bar = p1, region_type_bars = p2, price_histogram = p3, price_type_boxplot = p4, price_distance_scatter = p5, price_area_faceted = p6, median_price_heatmap = p7 )
-
-iwalk( plots, \~ ggsave( filename = file.path( "output/figures", paste0(.y, ".png") ), plot = .x, width = 10, height = 6, dpi = 300 ) )
+#### 2. Side-by-side bar chart: property type and region
