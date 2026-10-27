@@ -20,10 +20,14 @@ housing <- housing_raw |>
       na_if(na_if(str_trim(Regionname), ""), "#N/A")
     ),
     Price = if_else(Price > 0, Price, NA_real_),
-    BuildingArea = if_else(BuildingArea > 0, BuildingArea, NA_real_)
+    BuildingArea = if_else(
+      BuildingArea > 0,
+      BuildingArea,
+      NA_real_
+    )
   )
 
-#Numeric variables available for the optional filters
+#Numeric variables for the optional sidebar filters
 numeric_choices <- c(
   "No numeric filter" = "",
   "Price (AUD)" = "Price",
@@ -32,33 +36,62 @@ numeric_choices <- c(
   "Building area (square metres)" = "BuildingArea"
 )
 
+#Categorical variables for the exploration tab
+categorical_choices <- c(
+  "Property type" = "property_type",
+  "Region" = "region",
+  "Sale method" = "Method",
+  "Council area" = "CouncilArea"
+)
+
+#Convert variable names into readable labels
+categorical_label <- function(variable) {
+  labels <- c(
+    property_type = "Property type",
+    region = "Region",
+    Method = "Sale method",
+    CouncilArea = "Council area"
+  )
+  
+  unname(labels[variable])
+}
+
 property_types <- levels(housing$property_type)
 regions <- levels(housing$region)
 
+
 ui <- fluidPage(
+  
   titlePanel("Melbourne Housing Explorer"),
   
   sidebarLayout(
+    
     sidebarPanel(
       h3("Filter the data"),
       
       selectInput(
-        "type",
-        "Property type",
-        choices = c("All property types" = "All", property_types),
+        inputId = "type",
+        label = "Property type",
+        choices = c(
+          "All property types" = "All",
+          property_types
+        ),
         selected = "All"
       ),
       
       selectInput(
-        "region",
-        "Region",
-        choices = c("All regions" = "All", regions),
+        inputId = "region",
+        label = "Region",
+        choices = c(
+          "All regions" = "All",
+          regions
+        ),
         selected = "All"
       ),
       
       selectInput(
-        "numeric_var1",
-        "First numeric variable",
+        inputId = "numeric_var1",
+        label = "First numeric variable",
         choices = numeric_choices,
         selected = ""
       ),
@@ -66,186 +99,548 @@ ui <- fluidPage(
       uiOutput("numeric_slider1"),
       
       selectInput(
-        "numeric_var2",
-        "Second numeric variable",
+        inputId = "numeric_var2",
+        label = "Second numeric variable",
         choices = numeric_choices,
         selected = ""
       ),
       
       uiOutput("numeric_slider2"),
       
-      actionButton("apply", "Apply Filters"),
+      actionButton(
+        inputId = "apply",
+        label = "Apply Filters"
+      ),
       
-      br(), br(),
+      br(),
+      br(),
       
       helpText(
         "Choose your filters and click Apply Filters to update the data."
       ),
       
       helpText(
-        "Selecting a specific category or numeric range excludes records ",
-        "missing that variable."
+        "Selecting a specific category or numeric range excludes ",
+        "records missing that variable."
       )
     ),
     
     mainPanel(
       tabsetPanel(
+        
+        # About tab
         tabPanel(
           "About",
+          
           h3("About this app"),
+          
           p(
-            "Explore Melbourne housing records by property type, region, ",
-            "and property characteristics."
+            "Explore Melbourne housing records by property type, ",
+            "region, and property characteristics."
           ),
+          
           p(
             "Use the sidebar to select filters, then click Apply Filters. ",
-            "The Data Download tab displays the selected records and lets ",
-            "you download them. The Data Exploration tab will provide ",
+            "The Data Download tab displays the selected records and ",
+            "lets you download them. The Data Exploration tab provides ",
             "tables and graphs."
           ),
-          p(
-            "Data source and an image will be added here."
-          )
+          
+          p("Data source and an image will be added here.")
         ),
         
+        #Data Download tab
         tabPanel(
           "Data Download",
+          
           h3("Selected housing records"),
+          
           textOutput("record_count"),
+          
           br(),
-          downloadButton("download_data", "Download CSV"),
-          br(), br(),
+          
+          downloadButton(
+            outputId = "download_data",
+            label = "Download CSV"
+          ),
+          
+          br(),
+          br(),
+          
           DTOutput("housing_table")
         ),
         
+        #Data Exploration tab
         tabPanel(
           "Data Exploration",
-          h3("Explore the data"),
-          p("Numerical summaries and plots will be added here.")
+          
+          tabsetPanel(
+            
+            # Categorical subtab
+            tabPanel(
+              "Categorical",
+              
+              h3("Categorical summaries"),
+              
+              div(
+                class = "filter-summary",
+                strong("Applied filters"),
+                textOutput("applied_filters"),
+                textOutput("exploration_count")
+              ),
+              
+              selectInput(
+                inputId = "cat_var1",
+                label = "First categorical variable",
+                choices = categorical_choices,
+                selected = "property_type"
+              ),
+              
+              selectInput(
+                inputId = "cat_var2",
+                label = "Second categorical variable",
+                choices = c(
+                  "None" = "",
+                  categorical_choices
+                ),
+                selected = ""
+              ),
+              
+              p(
+                "Choose one variable for a one-way table, or two ",
+                "variables for a two-way table. Missing values are ",
+                "excluded."
+              ),
+              
+              h4("Contingency table"),
+              
+              DTOutput("categorical_table"),
+              
+              h4("Bar chart"),
+              
+              plotOutput(
+                "categorical_plot",
+                height = "500px"
+              )
+            ),
+            
+            #Numeric subtab
+            tabPanel(
+              "Numeric",
+              
+              h3("Numeric summaries"),
+              
+              p("Numeric summaries and plots will be added here next.")
+            )
+          )
         )
       )
     )
   )
 )
 
+
 server <- function(input, output, session) {
   
-  #Create a range slider for the first selected numeric variable
+  #Dynamic slider for the first numeric variable
   output$numeric_slider1 <- renderUI({
+    
     req(input$numeric_var1 != "")
     
-    values <- housing[[input$numeric_var1]]
+    variable <- input$numeric_var1
+    values <- housing[[variable]]
     values <- values[is.finite(values)]
+    
     req(length(values) > 0)
     
     limits <- range(values)
     
     if (limits[1] == limits[2]) {
-      return(helpText("This variable has only one observed value."))
+      return(
+        helpText(
+          "This variable has only one observed value. ",
+          "Please choose another variable."
+        )
+      )
     }
     
     sliderInput(
-      "range1",
-      "Select the first range",
+      inputId = paste0("range1_", variable),
+      label = "Select the first range",
       min = limits[1],
       max = limits[2],
       value = limits
     )
   })
   
-  #Create a range slider for the second selected numeric variable
+  #Dynamic slider for the second numeric variable
   output$numeric_slider2 <- renderUI({
+    
     req(input$numeric_var2 != "")
     
-    values <- housing[[input$numeric_var2]]
+    variable <- input$numeric_var2
+    values <- housing[[variable]]
     values <- values[is.finite(values)]
+    
     req(length(values) > 0)
     
     limits <- range(values)
     
     if (limits[1] == limits[2]) {
-      return(helpText("This variable has only one observed value."))
+      return(
+        helpText(
+          "This variable has only one observed value. ",
+          "Please choose another variable."
+        )
+      )
     }
     
     sliderInput(
-      "range2",
-      "Select the second range",
+      inputId = paste0("range2_", variable),
+      label = "Select the second range",
       min = limits[1],
       max = limits[2],
       value = limits
     )
   })
   
-  #Update the selected data only when Apply Filters is pressed.
-  #The full dataset is displayed when the app first opens.
-  filtered_data <- eventReactive(input$apply, {
+  #Capture the filters and selected records when the button is clicked.
+  #With ignoreNULL = FALSE, the full dataset is shown when the app opens.
+  applied_selection <- eventReactive(input$apply, {
+    
     data <- housing
     
-    if (input$type != "All") {
+    selected_type <- input$type
+    selected_region <- input$region
+    selected_var1 <- input$numeric_var1
+    selected_var2 <- input$numeric_var2
+    
+    descriptions <- c(
+      paste("Property type:", selected_type),
+      paste("Region:", selected_region)
+    )
+    
+    #Filter by property type
+    if (selected_type != "All") {
       data <- data |>
-        filter(property_type == input$type)
+        filter(property_type == selected_type)
     }
     
-    if (input$region != "All") {
+    #Filter by region
+    if (selected_region != "All") {
       data <- data |>
-        filter(region == input$region)
+        filter(region == selected_region)
     }
     
-    if (input$numeric_var1 != "") {
-      req(input$range1)
+    #Apply the first numeric filter
+    if (selected_var1 != "") {
+      
+      range1 <- input[[paste0("range1_", selected_var1)]]
+      
+      validate(
+        need(
+          !is.null(range1),
+          "Wait for the first slider to appear, then click Apply Filters."
+        )
+      )
       
       data <- data |>
         filter(
-          !is.na(.data[[input$numeric_var1]]),
+          !is.na(.data[[selected_var1]]),
           between(
-            .data[[input$numeric_var1]],
-            input$range1[1],
-            input$range1[2]
+            .data[[selected_var1]],
+            range1[1],
+            range1[2]
           )
         )
+      
+      label1 <- names(numeric_choices)[
+        match(selected_var1, numeric_choices)
+      ]
+      
+      descriptions <- c(
+        descriptions,
+        paste0(
+          label1, ": ",
+          format(range1[1], big.mark = ","),
+          " to ",
+          format(range1[2], big.mark = ",")
+        )
+      )
     }
     
-    if (input$numeric_var2 != "") {
-      req(input$range2)
+    #Apply the second numeric filter
+    if (selected_var2 != "") {
+      
+      range2 <- input[[paste0("range2_", selected_var2)]]
+      
+      validate(
+        need(
+          !is.null(range2),
+          "Wait for the second slider to appear, then click Apply Filters."
+        )
+      )
       
       data <- data |>
         filter(
-          !is.na(.data[[input$numeric_var2]]),
+          !is.na(.data[[selected_var2]]),
           between(
-            .data[[input$numeric_var2]],
-            input$range2[1],
-            input$range2[2]
+            .data[[selected_var2]],
+            range2[1],
+            range2[2]
           )
         )
+      
+      label2 <- names(numeric_choices)[
+        match(selected_var2, numeric_choices)
+      ]
+      
+      descriptions <- c(
+        descriptions,
+        paste0(
+          label2, ": ",
+          format(range2[1], big.mark = ","),
+          " to ",
+          format(range2[2], big.mark = ",")
+        )
+      )
     }
     
-    data
+    list(
+      data = data,
+      description = paste(descriptions, collapse = " | ")
+    )
+    
   }, ignoreNULL = FALSE)
   
+  #Make the filtered data available to all outputs
+  filtered_data <- reactive({
+    applied_selection()$data
+  })
+  
+  #Display the filters that were actually applied
+  output$applied_filters <- renderText({
+    applied_selection()$description
+  })
+  
+  #Display the number of matching records
+  output$exploration_count <- renderText({
+    
+    n <- nrow(filtered_data())
+    
+    if (n == 0) {
+      paste(
+        "0 matching records.",
+        "Try widening a range or choosing another region."
+      )
+    } else {
+      paste(
+        format(n, big.mark = ","),
+        "matching records"
+      )
+    }
+  })
+  
+  #Record count in the Data Download tab
   output$record_count <- renderText({
+    
     paste(
       "Number of selected records:",
       format(nrow(filtered_data()), big.mark = ",")
     )
   })
   
+  #Display the selected data
   output$housing_table <- renderDT({
+    
     datatable(
       filtered_data(),
-      options = list(pageLength = 10, scrollX = TRUE),
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE
+      ),
       rownames = FALSE
     )
   })
   
+  #Download the selected data
   output$download_data <- downloadHandler(
+    
     filename = function() {
-      paste0("melbourne_housing_", Sys.Date(), ".csv")
+      paste0(
+        "melbourne_housing_",
+        Sys.Date(),
+        ".csv"
+      )
     },
     
     content = function(file) {
       write_csv(filtered_data(), file)
     }
   )
+  
+  #One-way or two-way categorical table
+  output$categorical_table <- renderDT({
+    
+    data <- filtered_data()
+    
+    validate(
+      need(
+        nrow(data) > 0,
+        "No records match the applied filters."
+      )
+    )
+    
+    if (input$cat_var2 == "") {
+      
+      # One-way table
+      result <- data |>
+        filter(!is.na(.data[[input$cat_var1]])) |>
+        count(
+          .data[[input$cat_var1]],
+          name = "Count"
+        )
+      
+      validate(
+        need(
+          nrow(result) > 0,
+          "No nonmissing values are available."
+        )
+      )
+      
+      result <- result |>
+        mutate(
+          Percent = round(100 * Count / sum(Count), 1)
+        )
+      
+    } else {
+      
+      validate(
+        need(
+          input$cat_var1 != input$cat_var2,
+          "Please select two different categorical variables."
+        )
+      )
+      
+      #Two-way table
+      result <- data |>
+        filter(
+          !is.na(.data[[input$cat_var1]]),
+          !is.na(.data[[input$cat_var2]])
+        ) |>
+        count(
+          .data[[input$cat_var1]],
+          .data[[input$cat_var2]],
+          name = "Count"
+        ) |>
+        pivot_wider(
+          names_from = all_of(input$cat_var2),
+          values_from = Count,
+          values_fill = 0
+        )
+      
+      validate(
+        need(
+          nrow(result) > 0,
+          "No complete records are available."
+        )
+      )
+    }
+    
+    datatable(
+      result,
+      rownames = FALSE,
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE
+      )
+    )
+  })
+  
+  #One-way or grouped bar chart
+  output$categorical_plot <- renderPlot({
+    
+    data <- filtered_data()
+    
+    validate(
+      need(
+        nrow(data) > 0,
+        "No records match the applied filters."
+      )
+    )
+    
+    if (input$cat_var2 == "") {
+      
+      data <- data |>
+        filter(!is.na(.data[[input$cat_var1]]))
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No nonmissing values are available."
+        )
+      )
+      
+      ggplot(
+        data,
+        aes(x = .data[[input$cat_var1]])
+      ) +
+        geom_bar(fill = "#0072B2") +
+        coord_flip() +
+        labs(
+          title = paste(
+            "Records by",
+            categorical_label(input$cat_var1)
+          ),
+          x = categorical_label(input$cat_var1),
+          y = "Number of records"
+        ) +
+        theme_minimal(base_size = 12)
+      
+    } else {
+      
+      validate(
+        need(
+          input$cat_var1 != input$cat_var2,
+          "Please select two different categorical variables."
+        )
+      )
+      
+      data <- data |>
+        filter(
+          !is.na(.data[[input$cat_var1]]),
+          !is.na(.data[[input$cat_var2]])
+        )
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No complete records are available."
+        )
+      )
+      
+      ggplot(
+        data,
+        aes(
+          x = .data[[input$cat_var1]],
+          fill = .data[[input$cat_var2]]
+        )
+      ) +
+        geom_bar(position = "dodge") +
+        coord_flip() +
+        labs(
+          title = paste(
+            categorical_label(input$cat_var1),
+            "by",
+            categorical_label(input$cat_var2)
+          ),
+          x = categorical_label(input$cat_var1),
+          y = "Number of records",
+          fill = categorical_label(input$cat_var2)
+        ) +
+        theme_minimal(base_size = 12)
+    }
+  })
 }
 
 shinyApp(ui = ui, server = server)
