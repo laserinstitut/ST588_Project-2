@@ -149,22 +149,126 @@ ui <- fluidPage(
         tabPanel(
           "About",
           
-          h3("About this app"),
+          h3("Melbourne Housing Explorer"),
           
           p(
-            "Explore Melbourne housing records by property type, ",
-            "region, and property characteristics."
+            "This app lets users explore Melbourne housing records ",
+            "and compare prices, locations, and property characteristics."
+          ),
+          
+          tags$img(
+            src = paste0(
+              "https://upload.wikimedia.org/wikipedia/commons/",
+              "b/be/Melbourne_Yarra_River.jpg"
+            ),
+            alt = "Melbourne city skyline and the Yarra River",
+            style = paste(
+              "width: 100%;",
+              "max-width: 850px;",
+              "height: auto;",
+              "border-radius: 6px;"
+            )
           ),
           
           p(
-            "Use the sidebar to select filters, then click Apply Filters. ",
-            "The Data Download tab displays the selected records and ",
-            "lets you download them. The Data Exploration tab provides ",
-            "tables and graphs."
+            tags$small(
+              "Photo: ",
+              tags$a(
+                "Donaldytong / Wikimedia Commons",
+                href = paste0(
+                  "https://commons.wikimedia.org/wiki/",
+                  "File:Melbourne_Yarra_River.jpg"
+                ),
+                target = "_blank",
+                rel = "noopener"
+              ),
+              ", ",
+              tags$a(
+                "CC BY-SA 3.0",
+                href = "https://creativecommons.org/licenses/by-sa/3.0/",
+                target = "_blank",
+                rel = "noopener"
+              ),
+              ". Displayed without cropping."
+            )
           ),
           
-          p("Data source and an image will be added here.")
-        ),
+          h4("About the data"),
+          
+          p(
+            "The data come from Anthony Pino's Melbourne Housing Market ",
+            "dataset on Kaggle. This app uses Melbourne_housing_FULL.csv, ",
+            "which contains 34,857 records and 21 original variables."
+          ),
+          
+          p(
+            "The variables describe property prices, types, rooms, ",
+            "building and land areas, regions, and distance from the ",
+            "city centre. Prices are reported in Australian dollars."
+          ),
+          
+          p(
+            tags$a(
+              "View the dataset and its documentation on Kaggle",
+              href = paste0(
+                "https://www.kaggle.com/datasets/",
+                "anthonypino/melbourne-housing-market"
+              ),
+              target = "_blank",
+              rel = "noopener"
+            )
+          ),
+          
+          h4("How to use the app"),
+          
+          tags$ul(
+            tags$li(
+              tags$strong("Sidebar filters: "),
+              "Select a property type, region, and up to two numeric ranges. ",
+              "Choose All to include every category. Click Apply Filters ",
+              "to update the selected records."
+            ),
+            
+            tags$li(
+              tags$strong("Data Download: "),
+              "View the selected records and download them as a CSV file."
+            ),
+            
+            tags$li(
+              tags$strong("Categorical exploration: "),
+              "Choose one or two categorical variables to create ",
+              "contingency tables and bar charts."
+            ),
+            
+            tags$li(
+              tags$strong("Numeric exploration: "),
+              "Calculate summary statistics overall or by category. ",
+              "Create histograms, box plots, scatter plots, and heatmaps, ",
+              "with options for coloring and faceting."
+            )
+          ),
+          
+          p(
+            "Exploration controls update the summaries and plots using ",
+            "the currently applied subset. Changes to sidebar selections ",
+            "take effect only after you click Apply Filters."
+          ),
+          
+          h4("Missing values and interpretation"),
+          
+          p(
+            "Each summary or plot excludes records missing the variables ",
+            "it uses. Nonpositive prices and building areas are treated ",
+            "as missing. Logarithmic scales use only positive values."
+          ),
+          
+          p(
+            "Some groups contain few records, and some measurements ",
+            "include unusually large or small values. These results ",
+            "describe the available records and do not establish ",
+            "cause-and-effect relationships."
+          )
+          ),
         
         #Data Download tab
         tabPanel(
@@ -272,19 +376,26 @@ ui <- fluidPage(
               
               h3("Numeric plots"),
               
+              p(
+                "These controls use the data selected in the sidebar. ",
+                "To change the records included, adjust the sidebar and ",
+                "click Apply Filters."
+              ),
+              
               selectInput(
                 "numeric_plot_type",
                 "Plot type",
                 choices = c(
                   "Histogram" = "histogram",
                   "Box plot by category" = "boxplot",
-                  "Scatter plot" = "scatter"
+                  "Scatter plot" = "scatter",
+                  "Heatmap of medians" = "heatmap"
                 )
               ),
               
               selectInput(
                 "plot_y",
-                "Numeric variable",
+                "Numeric variable to plot or summarize",
                 choices = numeric_exploration_choices,
                 selected = "Price"
               ),
@@ -294,9 +405,20 @@ ui <- fluidPage(
                 
                 selectInput(
                   "plot_x",
-                  "Second numeric variable",
+                  "Horizontal-axis variable",
                   choices = numeric_exploration_choices,
                   selected = "Distance"
+                ),
+                
+                selectInput(
+                  "scatter_color",
+                  "Color points by",
+                  choices = c(
+                    "No coloring" = "",
+                    categorical_choices,
+                    numeric_exploration_choices
+                  ),
+                  selected = "property_type"
                 )
               ),
               
@@ -311,27 +433,55 @@ ui <- fluidPage(
                 )
               ),
               
-              selectInput(
-                "plot_facet",
-                "Facet by",
-                choices = c("No faceting" = "", categorical_choices),
-                selected = ""
+              conditionalPanel(
+                condition = "input.numeric_plot_type == 'heatmap'",
+                
+                selectInput(
+                  "heatmap_x",
+                  "Heatmap columns",
+                  choices = categorical_choices,
+                  selected = "property_type"
+                ),
+                
+                selectInput(
+                  "heatmap_y",
+                  "Heatmap rows",
+                  choices = categorical_choices,
+                  selected = "region"
+                ),
+                
+                p(
+                  "Each tile shows the median of the numeric variable ",
+                  "and the number of records used."
+                )
               ),
               
-              checkboxInput(
-                "log_numeric",
-                "Use a logarithmic scale for the numeric variable",
-                value = FALSE
+              conditionalPanel(
+                condition = "input.numeric_plot_type != 'heatmap'",
+                
+                selectInput(
+                  "plot_facet",
+                  "Facet by",
+                  choices = c("No faceting" = "", categorical_choices),
+                  selected = ""
+                ),
+                
+                checkboxInput(
+                  "log_numeric",
+                  "Use a logarithmic scale for the numeric variable",
+                  value = FALSE
+                )
               ),
               
               plotOutput(
                 "numeric_plot",
-                height = "550px"
+                height = "650px"
               ),
               
               p(
-                "Missing values are excluded from each summary or plot. ",
-                "A log scale uses only positive values."
+                "Missing values are excluded for the variables used in each plot. ",
+                "Logarithmic scales use only positive values. ",
+                "Heatmap medians based on few records should be interpreted cautiously."
               )
             )
             )
@@ -827,10 +977,12 @@ server <- function(input, output, session) {
   })
   
   
-  #Histogram, box plot, or scatter plot
+  #Heatmap, histogram, box plot, and scatter plot
   output$numeric_plot <- renderPlot({
     
     data <- filtered_data()
+    
+    req(input$numeric_plot_type, input$plot_y)
     
     validate(
       need(
@@ -840,31 +992,136 @@ server <- function(input, output, session) {
     )
     
     y_var <- input$plot_y
+    plot_type <- input$numeric_plot_type
     
-    #Remove missing and non-finite values for the selected variable
     data <- data |>
       filter(is.finite(.data[[y_var]]))
     
-    #Logarithms require positive values
-    if (input$log_numeric) {
+    validate(
+      need(
+        nrow(data) > 0,
+        "No observed values are available for this numeric variable."
+      )
+    )
+    
+    #Heatmap
+    if (plot_type == "heatmap") {
+      
+      req(input$heatmap_x, input$heatmap_y)
+      
+      x_group <- input$heatmap_x
+      y_group <- input$heatmap_y
+      
+      validate(
+        need(
+          x_group != y_group,
+          "Choose two different categorical variables for the heatmap."
+        )
+      )
+      
+      heatmap_data <- data |>
+        filter(
+          !is.na(.data[[x_group]]),
+          !is.na(.data[[y_group]])
+        ) |>
+        group_by(
+          .data[[x_group]],
+          .data[[y_group]]
+        ) |>
+        summarise(
+          median_value = median(.data[[y_var]]),
+          n = n(),
+          .groups = "drop"
+        ) |>
+        mutate(
+          tile_label = paste0(
+            scales::number(
+              median_value,
+              accuracy = 0.1,
+              big.mark = ","
+            ),
+            "\nn = ",
+            scales::comma(n)
+          )
+        )
+      
+      validate(
+        need(
+          nrow(heatmap_data) > 0,
+          "No complete records are available for this heatmap."
+        )
+      )
+      
+      plot <- ggplot(
+        heatmap_data,
+        aes(
+          x = .data[[x_group]],
+          y = .data[[y_group]],
+          fill = median_value
+        )
+      ) +
+        geom_tile(
+          color = "white",
+          linewidth = 0.5
+        ) +
+        geom_text(
+          aes(label = tile_label),
+          size = 3
+        ) +
+        scale_fill_gradient(
+          low = "#F7FBFF",
+          high = "#6BAED6",
+          labels = scales::label_comma()
+        ) +
+        scale_x_discrete(
+          labels = function(x) stringr::str_wrap(x, width = 18)
+        ) +
+        scale_y_discrete(
+          labels = function(x) stringr::str_wrap(x, width = 22)
+        ) +
+        labs(
+          title = paste("Median", numeric_label(y_var)),
+          subtitle = "Tiles show the median and number of observed values",
+          x = categorical_label(x_group),
+          y = categorical_label(y_group),
+          fill = paste("Median", numeric_label(y_var))
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          panel.grid = element_blank(),
+          axis.text.x = element_text(
+            angle = 45,
+            hjust = 1
+          )
+        )
+      
+      return(plot)
+    }
+    
+    #Settings for histogram, box plot, and scatter plot
+    use_log <- isTRUE(input$log_numeric)
+    
+    if (use_log) {
       data <- data |>
         filter(.data[[y_var]] > 0)
     }
     
-    #Exclude missing facet categories when faceting is selected
-    if (input$plot_facet != "") {
+    facet_var <- input$plot_facet
+    
+    if (!is.null(facet_var) && facet_var != "") {
       data <- data |>
-        filter(!is.na(.data[[input$plot_facet]]))
+        filter(!is.na(.data[[facet_var]]))
     }
     
-    if (input$numeric_plot_type == "histogram") {
-      
-      validate(
-        need(
-          nrow(data) > 0,
-          "No suitable values are available for this histogram."
-        )
+    validate(
+      need(
+        nrow(data) > 0,
+        "No suitable values remain. Try another variable or turn off the log scale."
       )
+    )
+    
+    #Histogram
+    if (plot_type == "histogram") {
       
       plot <- ggplot(
         data,
@@ -881,13 +1138,21 @@ server <- function(input, output, session) {
           y = "Number of records"
         )
       
-      if (input$log_numeric) {
+      if (use_log) {
         plot <- plot +
-          scale_x_log10() +
-          labs(x = paste(numeric_label(y_var), "(log scale)"))
+          scale_x_log10(labels = scales::label_comma()) +
+          labs(
+            x = paste(numeric_label(y_var), "(log scale)")
+          )
+      } else {
+        plot <- plot +
+          scale_x_continuous(labels = scales::label_comma())
       }
       
-    } else if (input$numeric_plot_type == "boxplot") {
+      #Box plot
+    } else if (plot_type == "boxplot") {
+      
+      req(input$box_group)
       
       data <- data |>
         filter(!is.na(.data[[input$box_group]]))
@@ -908,6 +1173,9 @@ server <- function(input, output, session) {
         )
       ) +
         geom_boxplot(outlier.alpha = 0.25) +
+        scale_x_discrete(
+          labels = function(x) stringr::str_wrap(x, width = 16)
+        ) +
         labs(
           title = paste(
             numeric_label(y_var),
@@ -917,32 +1185,53 @@ server <- function(input, output, session) {
           x = categorical_label(input$box_group),
           y = numeric_label(y_var)
         ) +
-        theme(legend.position = "none")
+        guides(fill = "none")
       
-      if (input$log_numeric) {
+      if (use_log) {
         plot <- plot +
-          scale_y_log10() +
-          labs(y = paste(numeric_label(y_var), "(log scale)"))
+          scale_y_log10(labels = scales::label_comma()) +
+          labs(
+            y = paste(numeric_label(y_var), "(log scale)")
+          )
+      } else {
+        plot <- plot +
+          scale_y_continuous(labels = scales::label_comma())
       }
       
+      #Scatter plot
     } else {
       
+      req(input$plot_x)
+      
       x_var <- input$plot_x
+      color_var <- input$scatter_color
       
       validate(
         need(
           x_var != y_var,
-          "Please choose two different numeric variables."
+          "Choose two different numeric variables."
         )
       )
       
       data <- data |>
         filter(is.finite(.data[[x_var]]))
       
+      #Complete values for the selected color variable
+      if (!is.null(color_var) && color_var != "") {
+        
+        if (is.numeric(data[[color_var]])) {
+          data <- data |>
+            filter(is.finite(.data[[color_var]]))
+        } else {
+          data <- data |>
+            filter(!is.na(.data[[color_var]]))
+        }
+      }
+      
       validate(
         need(
           nrow(data) > 0,
-          "No complete records are available for this scatter plot."
+          "No complete records are available for these variables."
         )
       )
       
@@ -952,12 +1241,41 @@ server <- function(input, output, session) {
           x = .data[[x_var]],
           y = .data[[y_var]]
         )
-      ) +
-        geom_point(
-          color = "#0072B2",
-          alpha = 0.25,
-          size = 1
-        ) +
+      )
+      
+      if (is.null(color_var) || color_var == "") {
+        
+        plot <- plot +
+          geom_point(
+            color = "#0072B2",
+            alpha = 0.3,
+            size = 1
+          )
+        
+      } else {
+        
+        plot <- plot +
+          geom_point(
+            aes(color = .data[[color_var]]),
+            alpha = 0.3,
+            size = 1
+          )
+        
+        if (is.numeric(data[[color_var]])) {
+          
+          plot <- plot +
+            scale_color_viridis_c() +
+            labs(color = numeric_label(color_var))
+          
+        } else {
+          
+          plot <- plot +
+            labs(color = categorical_label(color_var))
+        }
+      }
+      
+      plot <- plot +
+        scale_x_continuous(labels = scales::label_comma()) +
         labs(
           title = paste(
             numeric_label(y_var),
@@ -968,20 +1286,36 @@ server <- function(input, output, session) {
           y = numeric_label(y_var)
         )
       
-      if (input$log_numeric) {
+      if (use_log) {
         plot <- plot +
-          scale_y_log10() +
-          labs(y = paste(numeric_label(y_var), "(log scale)"))
+          scale_y_log10(labels = scales::label_comma()) +
+          labs(
+            y = paste(numeric_label(y_var), "(log scale)")
+          )
+      } else {
+        plot <- plot +
+          scale_y_continuous(labels = scales::label_comma())
       }
     }
     
-    if (input$plot_facet != "") {
+    #User-selected faceting
+    if (!is.null(facet_var) && facet_var != "") {
       plot <- plot +
-        facet_wrap(vars(.data[[input$plot_facet]]))
+        facet_wrap(
+          vars(.data[[facet_var]]),
+          labeller = label_wrap_gen(width = 20)
+        )
     }
     
     plot +
-      theme_minimal(base_size = 12)
+      theme_minimal(base_size = 12) +
+      theme(
+        axis.text.x = element_text(
+          angle = 45,
+          hjust = 1
+        ),
+        legend.position = "bottom"
+      )
   })
 }
 
