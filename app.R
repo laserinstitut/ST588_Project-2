@@ -36,6 +36,23 @@ numeric_choices <- c(
   "Building area (square metres)" = "BuildingArea"
 )
 
+# Numeric variables available for exploration
+numeric_exploration_choices <- c(
+  "Price (AUD)" = "Price",
+  "Distance from city centre (km)" = "Distance",
+  "Number of rooms" = "Rooms",
+  "Building area (square metres)" = "BuildingArea",
+  "Number of bathrooms" = "Bathroom",
+  "Number of car spaces" = "Car",
+  "Land size (square metres)" = "Landsize"
+)
+
+# Readable label for a numeric variable
+numeric_label <- function(variable) {
+  names(numeric_exploration_choices)[
+    match(variable, numeric_exploration_choices)
+  ]
+}
 #Categorical variables for the exploration tab
 categorical_choices <- c(
   "Property type" = "property_type",
@@ -230,15 +247,99 @@ ui <- fluidPage(
               
               h3("Numeric summaries"),
               
-              p("Numeric summaries and plots will be added here next.")
+              selectInput(
+                "summary_var",
+                "Numeric variable",
+                choices = numeric_exploration_choices,
+                selected = "Price"
+              ),
+              
+              selectInput(
+                "summary_group",
+                "Summarize by",
+                choices = c("Overall" = "", categorical_choices),
+                selected = "property_type"
+              ),
+              
+              p(
+                "Summaries use available values in the applied subset. ",
+                "Observed n may differ between variables."
+              ),
+              
+              DTOutput("numeric_summary"),
+              
+              hr(),
+              
+              h3("Numeric plots"),
+              
+              selectInput(
+                "numeric_plot_type",
+                "Plot type",
+                choices = c(
+                  "Histogram" = "histogram",
+                  "Box plot by category" = "boxplot",
+                  "Scatter plot" = "scatter"
+                )
+              ),
+              
+              selectInput(
+                "plot_y",
+                "Numeric variable",
+                choices = numeric_exploration_choices,
+                selected = "Price"
+              ),
+              
+              conditionalPanel(
+                condition = "input.numeric_plot_type == 'scatter'",
+                
+                selectInput(
+                  "plot_x",
+                  "Second numeric variable",
+                  choices = numeric_exploration_choices,
+                  selected = "Distance"
+                )
+              ),
+              
+              conditionalPanel(
+                condition = "input.numeric_plot_type == 'boxplot'",
+                
+                selectInput(
+                  "box_group",
+                  "Category for box plots",
+                  choices = categorical_choices,
+                  selected = "property_type"
+                )
+              ),
+              
+              selectInput(
+                "plot_facet",
+                "Facet by",
+                choices = c("No faceting" = "", categorical_choices),
+                selected = ""
+              ),
+              
+              checkboxInput(
+                "log_numeric",
+                "Use a logarithmic scale for the numeric variable",
+                value = FALSE
+              ),
+              
+              plotOutput(
+                "numeric_plot",
+                height = "550px"
+              ),
+              
+              p(
+                "Missing values are excluded from each summary or plot. ",
+                "A log scale uses only positive values."
+              )
+            )
             )
           )
         )
       )
     )
   )
-)
-
 
 server <- function(input, output, session) {
   
@@ -640,6 +741,247 @@ server <- function(input, output, session) {
         ) +
         theme_minimal(base_size = 12)
     }
+  })
+  #Numerical summaries: overall or by a category
+  output$numeric_summary <- renderDT({
+    
+    data <- filtered_data()
+    
+    validate(
+      need(
+        nrow(data) > 0,
+        "No records match the applied filters."
+      )
+    )
+    
+    variable <- input$summary_var
+    
+    data <- data |>
+      filter(is.finite(.data[[variable]]))
+    
+    validate(
+      need(
+        nrow(data) > 0,
+        "No observed values are available for this variable."
+      )
+    )
+    
+    if (input$summary_group == "") {
+      
+      result <- data |>
+        summarise(
+          `Observed n` = n(),
+          Mean = mean(.data[[variable]]),
+          Median = median(.data[[variable]]),
+          SD = sd(.data[[variable]]),
+          Minimum = min(.data[[variable]]),
+          Maximum = max(.data[[variable]])
+        )
+      
+    } else {
+      
+      group_var <- input$summary_group
+      
+      data <- data |>
+        filter(!is.na(.data[[group_var]]))
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No complete records are available for this grouping variable."
+        )
+      )
+      
+      result <- data |>
+        group_by(.data[[group_var]]) |>
+        summarise(
+          `Observed n` = n(),
+          Mean = mean(.data[[variable]]),
+          Median = median(.data[[variable]]),
+          SD = sd(.data[[variable]]),
+          Minimum = min(.data[[variable]]),
+          Maximum = max(.data[[variable]]),
+          .groups = "drop"
+        )
+      
+      names(result)[1] <- categorical_label(group_var)
+    }
+    
+    #Round summary statistics while preserving the count
+    result <- result |>
+      mutate(
+        across(
+          any_of(c("Mean", "Median", "SD", "Minimum", "Maximum")),
+          ~ round(.x, 1)
+        )
+      )
+    
+    datatable(
+      result,
+      rownames = FALSE,
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE
+      )
+    )
+  })
+  
+  
+  #Histogram, box plot, or scatter plot
+  output$numeric_plot <- renderPlot({
+    
+    data <- filtered_data()
+    
+    validate(
+      need(
+        nrow(data) > 0,
+        "No records match the applied filters."
+      )
+    )
+    
+    y_var <- input$plot_y
+    
+    #Remove missing and non-finite values for the selected variable
+    data <- data |>
+      filter(is.finite(.data[[y_var]]))
+    
+    #Logarithms require positive values
+    if (input$log_numeric) {
+      data <- data |>
+        filter(.data[[y_var]] > 0)
+    }
+    
+    #Exclude missing facet categories when faceting is selected
+    if (input$plot_facet != "") {
+      data <- data |>
+        filter(!is.na(.data[[input$plot_facet]]))
+    }
+    
+    if (input$numeric_plot_type == "histogram") {
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No suitable values are available for this histogram."
+        )
+      )
+      
+      plot <- ggplot(
+        data,
+        aes(x = .data[[y_var]])
+      ) +
+        geom_histogram(
+          bins = 30,
+          fill = "#0072B2",
+          color = "white"
+        ) +
+        labs(
+          title = paste("Distribution of", numeric_label(y_var)),
+          x = numeric_label(y_var),
+          y = "Number of records"
+        )
+      
+      if (input$log_numeric) {
+        plot <- plot +
+          scale_x_log10() +
+          labs(x = paste(numeric_label(y_var), "(log scale)"))
+      }
+      
+    } else if (input$numeric_plot_type == "boxplot") {
+      
+      data <- data |>
+        filter(!is.na(.data[[input$box_group]]))
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No complete records are available for this box plot."
+        )
+      )
+      
+      plot <- ggplot(
+        data,
+        aes(
+          x = .data[[input$box_group]],
+          y = .data[[y_var]],
+          fill = .data[[input$box_group]]
+        )
+      ) +
+        geom_boxplot(outlier.alpha = 0.25) +
+        labs(
+          title = paste(
+            numeric_label(y_var),
+            "by",
+            categorical_label(input$box_group)
+          ),
+          x = categorical_label(input$box_group),
+          y = numeric_label(y_var)
+        ) +
+        theme(legend.position = "none")
+      
+      if (input$log_numeric) {
+        plot <- plot +
+          scale_y_log10() +
+          labs(y = paste(numeric_label(y_var), "(log scale)"))
+      }
+      
+    } else {
+      
+      x_var <- input$plot_x
+      
+      validate(
+        need(
+          x_var != y_var,
+          "Please choose two different numeric variables."
+        )
+      )
+      
+      data <- data |>
+        filter(is.finite(.data[[x_var]]))
+      
+      validate(
+        need(
+          nrow(data) > 0,
+          "No complete records are available for this scatter plot."
+        )
+      )
+      
+      plot <- ggplot(
+        data,
+        aes(
+          x = .data[[x_var]],
+          y = .data[[y_var]]
+        )
+      ) +
+        geom_point(
+          color = "#0072B2",
+          alpha = 0.25,
+          size = 1
+        ) +
+        labs(
+          title = paste(
+            numeric_label(y_var),
+            "and",
+            numeric_label(x_var)
+          ),
+          x = numeric_label(x_var),
+          y = numeric_label(y_var)
+        )
+      
+      if (input$log_numeric) {
+        plot <- plot +
+          scale_y_log10() +
+          labs(y = paste(numeric_label(y_var), "(log scale)"))
+      }
+    }
+    
+    if (input$plot_facet != "") {
+      plot <- plot +
+        facet_wrap(vars(.data[[input$plot_facet]]))
+    }
+    
+    plot +
+      theme_minimal(base_size = 12)
   })
 }
 
